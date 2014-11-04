@@ -29,6 +29,7 @@
 #include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/thermal.h>
+#include <linux/acpi.h>
 #include "lm75.h"
 
 
@@ -193,7 +194,26 @@ lm75_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	int status;
 	u8 set_mask, clr_mask;
 	int new;
-	enum lm75_type kind = id->driver_data;
+	enum lm75_type kind;
+
+	if (id) {
+		kind = id->driver_data;
+	} else {
+		const char *str;
+		int err;
+
+		err = device_property_read_string(dev, "compatible", &str);
+		if (err)
+			return -EINVAL;
+
+		/*
+		 * XXX - parse device properties to generate parameters.  For
+		 * now, assume lm75
+		 */
+
+		kind = lm75;
+		dev_info(dev, "using firmware properties\n");
+	}
 
 	if (!i2c_check_functionality(client->adapter,
 			I2C_FUNC_SMBUS_BYTE_DATA | I2C_FUNC_SMBUS_WORD_DATA))
@@ -347,6 +367,14 @@ static const struct i2c_device_id lm75_ids[] = {
 };
 MODULE_DEVICE_TABLE(i2c, lm75_ids);
 
+static const struct of_device_id lm75_of_match[] = {
+	{ .compatible = "lm75" },
+	{ },
+};
+
+MODULE_DEVICE_TABLE(of, lm75_of_match);
+
+
 #define LM75A_ID 0xA1
 
 /* Return 0 if detection is successful, -ENODEV otherwise */
@@ -357,6 +385,8 @@ static int lm75_detect(struct i2c_client *new_client,
 	int i;
 	int conf, hyst, os;
 	bool is_lm75a = 0;
+
+	dev_dbg(&new_client->dev, "started detect\n");
 
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA |
 				     I2C_FUNC_SMBUS_WORD_DATA))
@@ -438,6 +468,8 @@ static int lm75_detect(struct i2c_client *new_client,
 
 	strlcpy(info->type, is_lm75a ? "lm75a" : "lm75", I2C_NAME_SIZE);
 
+	dev_dbg(&new_client->dev, "finished detect\n");
+
 	return 0;
 }
 
@@ -484,6 +516,7 @@ static struct i2c_driver lm75_driver = {
 	.driver = {
 		.name	= "lm75",
 		.pm	= LM75_DEV_PM_OPS,
+		.of_match_table = lm75_of_match,
 	},
 	.probe		= lm75_probe,
 	.remove		= lm75_remove,
