@@ -917,12 +917,21 @@ EXPORT_SYMBOL_GPL(i2c_unlock_adapter);
 static void i2c_dev_set_name(struct i2c_adapter *adap,
 			     struct i2c_client *client)
 {
+#if 0
+	/*
+	 * XXX - this breaks lm-sensors which does a sscanf on the device name
+	 *
+	 * The change that introduced this was 70762abb9.  I don't buy the
+	 * justification for that change, ACPIID:ij is no more stable than i2c
+	 * bus number
+	 */
 	struct acpi_device *adev = ACPI_COMPANION(&client->dev);
 
 	if (adev) {
 		dev_set_name(&client->dev, "i2c-%s", acpi_dev_name(adev));
 		return;
 	}
+#endif
 
 	/* For 10-bit clients, add an arbitrary offset to avoid collisions */
 	dev_set_name(&client->dev, "%d-%04x", i2c_adapter_id(adap),
