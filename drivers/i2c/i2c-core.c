@@ -168,14 +168,27 @@ static void acpi_i2c_register_devices(struct i2c_adapter *adap)
 {
 	acpi_handle handle;
 	acpi_status status;
+	struct acpi_buffer path = { ACPI_ALLOCATE_BUFFER, NULL };
 
-	if (!adap->dev.parent)
+	if (!adap->dev.parent) {
+		dev_warn(&adap->dev, "has no parent\n");
 		return;
+	}
 
 	handle = ACPI_HANDLE(adap->dev.parent);
-	if (!handle)
-		return;
+	if (!handle) {
+		dev_warn(&adap->dev, "parent has no acpi handle\n");
 
+		handle = ACPI_HANDLE(&adap->dev);
+		if (!handle) {
+			dev_warn(&adap->dev, "no acpi handle\n");
+			return;
+		}
+	}
+
+	acpi_get_name(handle, ACPI_FULL_PATHNAME, &path);
+	dev_warn(&adap->dev, "walking namespace: %s\n", (char *)path.pointer);
+	kfree(path.pointer);
 	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, handle, 1,
 				     acpi_i2c_add_device, NULL,
 				     adap, NULL);
@@ -626,6 +639,8 @@ static int i2c_device_probe(struct device *dev)
 	struct i2c_driver	*driver;
 	int status;
 
+	dev_warn(dev, "i2c_device_probe()\n");
+
 	if (!client)
 		return 0;
 
@@ -641,13 +656,17 @@ static int i2c_device_probe(struct device *dev)
 	}
 
 	driver = to_i2c_driver(dev->driver);
+	if (!driver) {
+		dev_warn(dev, "NULL driver in i2c_device_probe()\n");
+		return -ENODEV;
+	}
 	if (!driver->probe || !driver->id_table)
 		return -ENODEV;
 
 	if (!device_can_wakeup(&client->dev))
 		device_init_wakeup(&client->dev,
 					client->flags & I2C_CLIENT_WAKE);
-	dev_dbg(dev, "probe\n");
+	dev_warn(dev, "probe\n");
 
 	status = of_clk_set_defaults(dev->of_node, false);
 	if (status < 0)
@@ -655,6 +674,9 @@ static int i2c_device_probe(struct device *dev)
 
 	status = dev_pm_domain_attach(&client->dev, true);
 	if (status != -EPROBE_DEFER) {
+		dev_warn(dev, "probing i2c client with name %s\n", client->name);
+		dev_warn(dev, "probing i2c client with id_table %p\n", driver->id_table);
+		dev_warn(dev, "probing i2c client with i2c_match_id %p\n", i2c_match_id(driver->id_table, client));
 		status = driver->probe(client, i2c_match_id(driver->id_table,
 					client));
 		if (status)
@@ -757,6 +779,11 @@ static struct device_type i2c_client_type = {
  */
 struct i2c_client *i2c_verify_client(struct device *dev)
 {
+	if (!dev) {
+		pr_err("NULL dev in i2c_verify_client()\n");
+		return NULL;
+	}
+
 	return (dev->type == &i2c_client_type)
 			? to_i2c_client(dev)
 			: NULL;
@@ -1375,6 +1402,8 @@ static int i2c_register_adapter(struct i2c_adapter *adap)
 {
 	int res = 0;
 
+	pr_warn("registering i2c adapter %s\n", adap->name);
+
 	/* Can't register until after driver model init */
 	if (unlikely(WARN_ON(!i2c_bus_type.p))) {
 		res = -EAGAIN;
@@ -1408,7 +1437,7 @@ static int i2c_register_adapter(struct i2c_adapter *adap)
 	if (res)
 		goto out_list;
 
-	dev_dbg(&adap->dev, "adapter [%s] registered\n", adap->name);
+	dev_warn(&adap->dev, "adapter [%s] registered\n", adap->name);
 
 #ifdef CONFIG_I2C_COMPAT
 	res = class_compat_create_link(i2c_adapter_compat_class, &adap->dev,
@@ -1453,6 +1482,7 @@ static int i2c_register_adapter(struct i2c_adapter *adap)
 exit_recovery:
 	/* create pre-declared device nodes */
 	of_i2c_register_devices(adap);
+	dev_warn(&adap->dev, "registering ACPI devices for i2c adapter\n");
 	acpi_i2c_register_devices(adap);
 	acpi_i2c_install_space_handler(adap);
 
@@ -1512,6 +1542,8 @@ int i2c_add_adapter(struct i2c_adapter *adapter)
 {
 	struct device *dev = &adapter->dev;
 	int id;
+
+	pr_warn("i2c_add_adapter()\n");
 
 	if (dev->of_node) {
 		id = of_alias_get_id(dev->of_node, "i2c");

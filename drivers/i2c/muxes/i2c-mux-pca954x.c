@@ -44,6 +44,7 @@
 #include <linux/of.h>
 #include <linux/pm.h>
 #include <linux/slab.h>
+#include <linux/property.h>
 
 #define PCA954X_MAX_NCHANS 8
 
@@ -58,13 +59,6 @@ enum pca_type {
 	pca_9548,
 };
 
-struct pca954x {
-	enum pca_type type;
-	struct i2c_adapter *virt_adaps[PCA954X_MAX_NCHANS];
-
-	u8 last_chan;		/* last register value */
-};
-
 struct chip_desc {
 	u8 nchans;
 	u8 enable;	/* used for muxes only */
@@ -73,6 +67,14 @@ struct chip_desc {
 		pca954x_isswi
 	} muxtype;
 };
+
+struct pca954x {
+	struct chip_desc chip;
+	struct i2c_adapter *virt_adaps[PCA954X_MAX_NCHANS];
+
+	u8 last_chan;		/* last register value */
+};
+
 
 /* Provide specs for the PCA954x types we know about */
 static const struct chip_desc chips[] = {
@@ -118,6 +120,12 @@ static const struct i2c_device_id pca954x_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, pca954x_id);
 
+static const struct of_device_id pca954x_of_match[] = {
+	{ .compatible = "pca954x" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, pca954x_of_match);
+
 /* Write to mux register. Don't use i2c_transfer()/i2c_smbus_xfer()
    for this as they will try to lock adapter a second time */
 static int pca954x_reg_write(struct i2c_adapter *adap,
@@ -150,7 +158,7 @@ static int pca954x_select_chan(struct i2c_adapter *adap,
 			       void *client, u32 chan)
 {
 	struct pca954x *data = i2c_get_clientdata(client);
-	const struct chip_desc *chip = &chips[data->type];
+	const struct chip_desc *chip = &data->chip;
 	u8 regval;
 	int ret = 0;
 
@@ -182,17 +190,81 @@ static int pca954x_deselect_mux(struct i2c_adapter *adap,
 /*
  * I2C init/probing/exit functions
  */
+
+static int pca954x_fw_to_chip(struct device *dev, struct chip_desc *chip)
+{
+	const char *str;
+	u32 val;
+
+	if (device_property_read_string(dev, "compatible", &str) != 0)
+		return -EINVAL;
+
+	dev_info(dev, "got compatible\n");
+
+	if (strcmp(str, "pca954x") == 0) {
+		dev_info(dev, "is pca954x\n");
+
+		/* Required parameters */
+		if (device_property_read_u32(dev, "channels", &val) == 0)
+			chip->nchans = (u8)val;
+		else
+			return -EINVAL;
+
+		dev_info(dev, "got channels\n");
+
+		if (device_property_read_string(dev, "mux-type", &str) == 0) {
+			if (strcmp(str, "switch") == 0)
+				chip->muxtype = pca954x_isswi;
+			else if (strcmp(str, "mux") == 0)
+				chip->muxtype = pca954x_ismux;
+			else
+				dev_warn(dev, "invalid mux-type: %s\n", str);
+		} else {
+			return -EINVAL;
+		}
+
+		dev_info(dev, "got mux-type\n");
+
+		/* Optional parameters */
+		if (device_property_read_u32(dev, "enable-mask", &val) == 0)
+			chip->enable = val;
+	}
+
+	dev_info(dev, "fw properties success\n");
+
+	return 0;
+}
+
 static int pca954x_probe(struct i2c_client *client,
 			 const struct i2c_device_id *id)
 {
 	struct i2c_adapter *adap = to_i2c_adapter(client->dev.parent);
 	struct pca954x_platform_data *pdata = dev_get_platdata(&client->dev);
 	struct device_node *of_node = client->dev.of_node;
+	struct chip_desc chip = { 0 };
 	bool idle_disconnect_dt;
 	struct gpio_desc *gpio;
 	int num, force, class;
 	struct pca954x *data;
 	int ret;
+
+	dev_info(&client->dev, "pca954x_probe()\n");
+
+	if (id) {
+		dev_info(&client->dev, "using id table\n");
+		chip = chips[id->driver_data];
+	} else {
+		dev_info(&client->dev, "getting firmware properties\n");
+		ret = pca954x_fw_to_chip(&client->dev, &chip);
+		if (ret == 0)
+			dev_info(&client->dev, "using firmware properties\n");
+		else
+			/*
+			 * XXX - Do we need to look up our "compatible" in
+			 * id->driver_data for backwards compatibility?
+			 */
+			return -ENODEV;
+	}
 
 	if (!i2c_check_functionality(adap, I2C_FUNC_SMBUS_BYTE))
 		return -ENODEV;
@@ -200,6 +272,8 @@ static int pca954x_probe(struct i2c_client *client,
 	data = devm_kzalloc(&client->dev, sizeof(struct pca954x), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
+
+	data->chip = chip;
 
 	i2c_set_clientdata(client, data);
 
@@ -217,16 +291,14 @@ static int pca954x_probe(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-	data->type = id->driver_data;
 	data->last_chan = 0;		   /* force the first selection */
 
 	idle_disconnect_dt = of_node &&
 		of_property_read_bool(of_node, "i2c-mux-idle-disconnect");
 
 	/* Now create an adapter for each channel */
-	for (num = 0; num < chips[data->type].nchans; num++) {
+	for (num = 0; num < data->chip.nchans; num++) {
 		bool idle_disconnect_pd = false;
-
 		force = 0;			  /* dynamic adap number */
 		class = 0;			  /* no class by default */
 		if (pdata) {
@@ -257,7 +329,7 @@ static int pca954x_probe(struct i2c_client *client,
 
 	dev_info(&client->dev,
 		 "registered %d multiplexed busses for I2C %s %s\n",
-		 num, chips[data->type].muxtype == pca954x_ismux
+		 num, data->chip.muxtype == pca954x_ismux
 				? "mux" : "switch", client->name);
 
 	return 0;
@@ -271,10 +343,9 @@ virt_reg_failed:
 static int pca954x_remove(struct i2c_client *client)
 {
 	struct pca954x *data = i2c_get_clientdata(client);
-	const struct chip_desc *chip = &chips[data->type];
 	int i;
 
-	for (i = 0; i < chip->nchans; ++i)
+	for (i = 0; i < data->chip.nchans; ++i)
 		if (data->virt_adaps[i]) {
 			i2c_del_mux_adapter(data->virt_adaps[i]);
 			data->virt_adaps[i] = NULL;
@@ -301,6 +372,7 @@ static struct i2c_driver pca954x_driver = {
 		.name	= "pca954x",
 		.pm	= &pca954x_pm,
 		.owner	= THIS_MODULE,
+		.of_match_table = pca954x_of_match,
 	},
 	.probe		= pca954x_probe,
 	.remove		= pca954x_remove,
