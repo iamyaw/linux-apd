@@ -774,6 +774,254 @@ static ssize_t status_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(status);
 
+static size_t property_to_sysfs(const char *src, char *dst)
+{
+	size_t i;
+
+	for (i = 0; i < strlen(src); i++) {
+		if (src[i] == '-')
+			dst[i] = '_';
+		else
+			dst[i] = src[i];
+	}
+	dst[i] = '\0';
+
+	return i;
+}
+
+static size_t sysfs_to_property(const char *src, char *dst)
+{
+	size_t i;
+
+	for (i = 0; i < strlen(src); i++) {
+		if (src[i] == '_')
+			dst[i] = '-';
+		else
+			dst[i] = src[i];
+	}
+	dst[i] = '\0';
+
+	return i;
+}
+
+static ssize_t acpi_property_print(char *buf, const union acpi_object *obj)
+{
+	switch (obj->type) {
+	case ACPI_TYPE_INTEGER:
+		return sprintf(buf, "0x%llx", obj->integer.value);
+	case ACPI_TYPE_STRING:
+		return sprintf(buf, "%s", obj->string.pointer);
+	case ACPI_TYPE_LOCAL_REFERENCE:
+		return sprintf(buf, "(acpi_handle type 0x%02x)%p",
+		               obj->reference.actual_type, obj->reference.handle);
+	case ACPI_TYPE_PACKAGE:
+		return sprintf(buf, "(package with %d elements)",
+		               obj->package.count);
+	default:
+		return -EINVAL;
+	}
+}
+
+static ssize_t acpi_property_show(struct device *dev,
+				  struct device_attribute *dev_attr,
+				  char *buf)
+{
+	struct acpi_device *adev = to_acpi_device(dev);
+	const char *sysfs_name = dev_attr->attr.name;
+	const union acpi_object *obj;
+	char property[128];
+	bool is_ref;
+	int err;
+	char *out;
+
+	sysfs_to_property(sysfs_name, property);
+
+	if (strlen(sysfs_name) >= strlen("_args")) {
+		int args_offset = strlen(sysfs_name) - strlen("_args");
+
+		if (strcmp(&sysfs_name[args_offset], "_args") == 0) {
+			property[args_offset] = '\0';
+			is_ref = true;
+		}
+	}
+
+	dev_dbg(dev, "reading property %s\n", property);
+
+	err = acpi_dev_get_property(adev, property, ACPI_TYPE_ANY, &obj);
+	if (err)
+		return err;
+
+	out = buf;
+	if (obj->type == ACPI_TYPE_PACKAGE) {
+		int element = is_ref ? 1 : 0;
+
+		for (; element < obj->package.count; element++) {
+		    out += acpi_property_print(out, &obj->package.elements[element]);
+		    *out++ = ' ';
+		}
+		out--;
+	} else {
+		out += acpi_property_print(out, obj);
+	}
+	*out++ = '\n';
+
+	return out - buf;
+}
+
+static int acpi_property_create_attr(struct acpi_device *adev, const char *property)
+{
+	struct device_attribute *dev_attr = NULL;
+	char *sysfs_name = NULL;
+	struct acpi_reference_args args;
+	const union acpi_object *obj;
+	int err;
+
+	sysfs_name = devm_kstrdup(&adev->dev, property, GFP_KERNEL);
+	if (!sysfs_name) {
+		err = -ENOMEM;
+		goto fail;
+	}
+
+	property_to_sysfs(property, sysfs_name);
+
+	dev_attr = devm_kzalloc(&adev->dev, sizeof *dev_attr, GFP_KERNEL);
+	if (!dev_attr) {
+		err = -ENOMEM;
+		goto fail;
+	}
+
+	err = acpi_dev_get_property(adev, property, ACPI_TYPE_ANY, &obj);
+	if (err)
+		goto fail;
+
+	err = acpi_dev_get_property_reference(adev, property, 0, &args);
+	if (!err) {
+		char *sysfs_args_name;
+		
+		dev_info(&adev->dev, "create property link: %s\n", sysfs_name);
+
+		err = sysfs_create_link(&adev->dev.kobj, &args.adev->dev.kobj, sysfs_name);
+		if (err)
+			goto fail;
+
+		if (args.nargs > 0) {
+			sysfs_args_name = devm_kasprintf(&adev->dev, GFP_KERNEL, "%s_args", sysfs_name);
+			devm_kfree(&adev->dev, sysfs_name);
+			sysfs_name = sysfs_args_name;
+		} else {
+			devm_kfree(&adev->dev, sysfs_name);
+			sysfs_name = NULL;
+		}
+	}
+
+	if (sysfs_name) {
+		dev_info(&adev->dev, "create property attr: %s\n", sysfs_name);
+
+		sysfs_attr_init(&dev_attr->attr);
+		dev_attr->show = acpi_property_show;
+		dev_attr->attr.name = sysfs_name;
+		dev_attr->attr.mode = 0444;
+
+		err = device_create_file(&adev->dev, dev_attr);
+		if (err)
+			goto fail;
+	}
+
+	return 0;
+
+fail:
+	devm_kfree(&adev->dev, sysfs_name);
+	devm_kfree(&adev->dev, dev_attr);
+	return err;
+}
+
+static void acpi_property_remove_attr(struct acpi_device *adev, const char *property)
+{
+	struct device_attribute dev_attr = { { 0 } };
+	const union acpi_object *obj;
+	struct acpi_reference_args args;
+	char *sysfs_name;
+	int err;
+
+	err = acpi_dev_get_property(adev, property, ACPI_TYPE_ANY, &obj);
+	if (err)
+		return;
+
+	sysfs_name = devm_kstrdup(&adev->dev, property, GFP_KERNEL);
+	if (!sysfs_name)
+		return;
+
+	property_to_sysfs(property, sysfs_name);
+
+	err = acpi_dev_get_property_reference(adev, property, 0, &args);
+	if (err) {
+		dev_attr.attr.name = sysfs_name;
+	} else {
+		sysfs_remove_link(&adev->dev.kobj, sysfs_name);
+
+		if (args.nargs > 0) {
+			dev_attr.attr.name =
+				devm_kasprintf(&adev->dev, GFP_KERNEL, "%s_args", sysfs_name);
+		}
+	}
+
+	if (dev_attr.attr.name)
+		device_remove_file(&adev->dev, &dev_attr);
+}
+
+static void acpi_add_properties(struct acpi_device *adev)
+{
+	const union acpi_object *properties;
+	int i;
+
+	if (!adev)
+		return;
+
+	if (!adev->data.pointer || !adev->data.properties)
+		return;
+
+	properties = adev->data.properties;
+	if (!properties->package.count)
+		return;
+
+	for (i = 0; i < properties->package.count; i++) {
+		const union acpi_object *propname;
+		const union acpi_object *property;
+		int err;
+
+		property = &properties->package.elements[i];
+		propname = &property->package.elements[0];
+
+		err = acpi_property_create_attr(adev, propname->string.pointer);
+		if (err)
+			continue;
+	}
+}
+
+static void acpi_del_properties(struct acpi_device *adev)
+{
+	const union acpi_object *properties;
+	int i;
+
+	if (!adev)
+		return;
+
+	if (!adev->data.pointer || !adev->data.properties)
+		return;
+
+	properties = adev->data.properties;
+	for (i = 0; i < properties->package.count; i++) {
+		const union acpi_object *propname;
+		const union acpi_object *property;
+
+		property = &properties->package.elements[i];
+		propname = &property->package.elements[0];
+
+		acpi_property_remove_attr(adev, propname->string.pointer);
+	}
+}
+
+
 static int acpi_device_setup_files(struct acpi_device *dev)
 {
 	struct acpi_buffer buffer = {ACPI_ALLOCATE_BUFFER, NULL};
@@ -850,12 +1098,20 @@ static int acpi_device_setup_files(struct acpi_device *dev)
 						    &dev_attr_real_power_state);
 	}
 
+	if (dev->data.of_compatible) {
+		acpi_add_properties(dev);
+	}
+
 end:
 	return result;
 }
 
 static void acpi_device_remove_files(struct acpi_device *dev)
 {
+	if (dev->data.of_compatible) {
+		acpi_del_properties(dev);
+	}
+
 	if (dev->flags.power_manageable) {
 		device_remove_file(&dev->dev, &dev_attr_power_state);
 		if (dev->power.flags.power_resources)

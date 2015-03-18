@@ -15,6 +15,7 @@
 
 #include <linux/fwnode.h>
 #include <linux/types.h>
+#include <linux/device.h>
 
 struct device;
 
@@ -70,6 +71,11 @@ struct fwnode_handle *device_get_next_child_node(struct device *dev,
 void fwnode_handle_put(struct fwnode_handle *fwnode);
 
 unsigned int device_get_child_node_count(struct device *dev);
+int device_property_create_attr(struct device *dev,
+                                const char *name,
+                                struct device_attribute *dev_attr);
+void device_property_remove_attr(struct device *dev,
+				 const char *name);
 
 static inline bool device_property_read_bool(struct device *dev,
 					     const char *propname)
