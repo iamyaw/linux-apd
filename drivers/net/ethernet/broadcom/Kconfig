@@ -161,4 +161,9 @@ config SYSTEMPORT
 	  Broadcom BCM7xxx Set Top Box family chipset using an internal
 	  Ethernet switch.
 
+config BCM56854
+	tristate "Broadcom 56854 (Trident 2) Ethernet Switching ASIC support"
+	help
+	  A dummy driver for ACPI bindings.
+
 endif # NET_VENDOR_BROADCOM
