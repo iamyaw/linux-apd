@@ -338,6 +338,7 @@ enum pmbus_sensor_classes {
 enum pmbus_data_format { linear = 0, direct, vid };
 
 struct pmbus_driver_info {
+	const char *hwmon_name;
 	int pages;		/* Total number of pages */
 	enum pmbus_data_format format[PSC_NUM_CLASSES];
 	/*
