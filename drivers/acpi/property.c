@@ -372,6 +372,36 @@ int acpi_dev_get_property_reference(struct acpi_device *adev,
 }
 EXPORT_SYMBOL_GPL(acpi_dev_get_property_reference);
 
+struct device *acpi_dev_get_physical(struct acpi_device *adev)
+{
+	struct device *physical_dev = NULL;
+	struct acpi_device_physical_node *entry;
+	struct list_head *list;
+
+	if (adev->physical_node_count < 1) {
+		dev_warn(&adev->dev, "no physical nodes\n");
+		return ERR_PTR(-ENODEV);
+	}
+
+	mutex_lock(&adev->physical_node_lock);
+	list = &adev->physical_node_list;
+	if (!list_empty(list)) {
+		entry = list_first_entry(list,
+					 struct acpi_device_physical_node,
+					 node);
+		physical_dev = entry->dev;
+	}
+	mutex_unlock(&adev->physical_node_lock);
+
+	if (!physical_dev) {
+		dev_warn(&adev->dev, "no physical nodes\n");
+		return ERR_PTR(-ENODEV);
+	}
+
+	return physical_dev;
+}
+EXPORT_SYMBOL(acpi_dev_get_physical);
+
 int acpi_dev_prop_get(struct acpi_device *adev, const char *propname,
 		      void **valptr)
 {
