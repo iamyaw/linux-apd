@@ -129,12 +129,14 @@ static const struct i2c_device_id at24_ids[] = {
 	{ "24c512", AT24_DEVICE_MAGIC(524288 / 8, AT24_FLAG_ADDR16) },
 	{ "24c1024", AT24_DEVICE_MAGIC(1048576 / 8, AT24_FLAG_ADDR16) },
 	{ "at24", 0 },
+	{ "sff-twi", 0 },
 	{ /* END OF LIST */ }
 };
 MODULE_DEVICE_TABLE(i2c, at24_ids);
 
 static const struct of_device_id at24_of_match[] = {
 	{ .compatible = "at24" },
+	{ .compatible = "sff-twi" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, at24_of_match);
@@ -485,10 +487,10 @@ static bool at24_fw_to_chip(struct device *dev, struct at24_platform_data *chip)
 	u32 val;
 	const char *str;
 
-	if (device_property_read_string(dev, "compatible", &str) == 0 &&
-	    strcmp(str, "at24") == 0) {
-		dev_info(dev, "attempting to use firmware properties\n");
+	if (device_property_read_string(dev, "compatible", &str) != 0)
+		return false;
 
+	if (strcmp(str, "at24") == 0) {
 		/* Required parameters */
 		if (device_property_read_u32(dev, "pagesize", &val) == 0)
 			chip->page_size = (u16)val;
@@ -507,6 +509,13 @@ static bool at24_fw_to_chip(struct device *dev, struct at24_platform_data *chip)
 			else
 			    dev_warn(dev, "at24: invalid fixed-pages: %d\n", val);
 		}
+	} else if (strcmp(str, "sff-twi") == 0) {
+		// XXX - super hack
+		chip->page_size = 1;
+		chip->byte_len = 256;
+		chip->flags = AT24_FLAG_IRUGO;
+	} else {
+		return false;
 	}
 
 	if (device_property_present(dev, "read-only"))
