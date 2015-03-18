@@ -165,3 +165,6 @@ obj-$(CONFIG_RAS)		+= ras/
 obj-$(CONFIG_THUNDERBOLT)	+= thunderbolt/
 obj-$(CONFIG_CORESIGHT)		+= coresight/
 obj-$(CONFIG_ANDROID)		+= android/
+
+# Switch Complex drivers
+obj-$(CONFIG_SWC)		+= swc/

@@ -64,6 +64,12 @@ int fwnode_property_read_string(struct fwnode_handle *fwnode,
 struct fwnode_handle *device_get_next_child_node(struct device *dev,
 						 struct fwnode_handle *child);
 
+#if 0
+// XXX - this would be useful
+struct fwnode_handle *device_find_compatible_node(struct fwnode_handle *from,
+						  const char *compatible);
+#endif
+
 #define device_for_each_child_node(dev, child) \
 	for (child = device_get_next_child_node(dev, NULL); child; \
 	     child = device_get_next_child_node(dev, child))

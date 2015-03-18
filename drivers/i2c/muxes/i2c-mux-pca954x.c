@@ -194,23 +194,17 @@ static int pca954x_deselect_mux(struct i2c_adapter *adap,
 static int pca954x_fw_to_chip(struct device *dev, struct chip_desc *chip)
 {
 	const char *str;
-	u32 val;
+	u8 val;
 
 	if (device_property_read_string(dev, "compatible", &str) != 0)
 		return -EINVAL;
 
-	dev_info(dev, "got compatible\n");
-
 	if (strcmp(str, "pca954x") == 0) {
-		dev_info(dev, "is pca954x\n");
-
 		/* Required parameters */
-		if (device_property_read_u32(dev, "channels", &val) == 0)
-			chip->nchans = (u8)val;
+		if (device_property_read_u8(dev, "channels", &val) == 0)
+			chip->nchans = val;
 		else
 			return -EINVAL;
-
-		dev_info(dev, "got channels\n");
 
 		if (device_property_read_string(dev, "mux-type", &str) == 0) {
 			if (strcmp(str, "switch") == 0)
@@ -223,14 +217,11 @@ static int pca954x_fw_to_chip(struct device *dev, struct chip_desc *chip)
 			return -EINVAL;
 		}
 
-		dev_info(dev, "got mux-type\n");
-
 		/* Optional parameters */
-		if (device_property_read_u32(dev, "enable-mask", &val) == 0)
+		if (chip->muxtype == pca954x_ismux &&
+		    device_property_read_u8(dev, "enable-mask", &val) == 0)
 			chip->enable = val;
 	}
-
-	dev_info(dev, "fw properties success\n");
 
 	return 0;
 }
@@ -248,21 +239,14 @@ static int pca954x_probe(struct i2c_client *client,
 	struct pca954x *data;
 	int ret;
 
-	dev_info(&client->dev, "pca954x_probe()\n");
-
 	if (id) {
-		dev_info(&client->dev, "using id table\n");
 		chip = chips[id->driver_data];
+		dev_info(&client->dev, "using id table\n");
 	} else {
-		dev_info(&client->dev, "getting firmware properties\n");
 		ret = pca954x_fw_to_chip(&client->dev, &chip);
 		if (ret == 0)
 			dev_info(&client->dev, "using firmware properties\n");
 		else
-			/*
-			 * XXX - Do we need to look up our "compatible" in
-			 * id->driver_data for backwards compatibility?
-			 */
 			return -ENODEV;
 	}
 
