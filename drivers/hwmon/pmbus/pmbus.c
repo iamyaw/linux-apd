@@ -172,7 +172,18 @@ static int pmbus_probe(struct i2c_client *client,
 	if (!info)
 		return -ENOMEM;
 
-	info->pages = id->driver_data;
+	if (id) {
+		info->pages = id->driver_data;
+		info->hwmon_name = client->name;
+	} else {
+		const char *str;
+		int err;
+		
+		err = device_property_read_string(&client->dev, "compatible", &str);
+		if (err)
+			return -EINVAL;
+		info->hwmon_name = str;
+	}
 	info->identify = pmbus_identify;
 
 	return pmbus_do_probe(client, id, info);
@@ -199,10 +210,18 @@ static const struct i2c_device_id pmbus_id[] = {
 
 MODULE_DEVICE_TABLE(i2c, pmbus_id);
 
+static const struct of_device_id pmbus_of_match[] = {
+	{ .compatible = "pmbus", },
+	{ },
+};
+MODULE_DEVICE_TABLE(of, pmbus_of_match);
+
+
 /* This is the driver that will be inserted */
 static struct i2c_driver pmbus_driver = {
 	.driver = {
 		   .name = "pmbus",
+		   .of_match_table = pmbus_of_match,
 		   },
 	.probe = pmbus_probe,
 	.remove = pmbus_do_remove,

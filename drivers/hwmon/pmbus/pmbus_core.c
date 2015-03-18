@@ -1885,7 +1885,7 @@ int pmbus_do_probe(struct i2c_client *client, const struct i2c_device_id *id,
 	}
 
 	data->groups[0] = &data->group;
-	data->hwmon_dev = hwmon_device_register_with_groups(dev, client->name,
+	data->hwmon_dev = hwmon_device_register_with_groups(dev, info->hwmon_name,
 							    data, data->groups);
 	if (IS_ERR(data->hwmon_dev)) {
 		ret = PTR_ERR(data->hwmon_dev);

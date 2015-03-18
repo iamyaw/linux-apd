@@ -31,6 +31,8 @@
 #include <linux/hwmon-sysfs.h>
 #include <linux/err.h>
 #include <linux/mutex.h>
+#include <linux/acpi.h>
+#include <linux/nls.h>
 
 /* Addresses to scan */
 static const unsigned short normal_i2c[] = {
@@ -188,6 +190,7 @@ static const u8 temp_regs[t_num_temp] = {
 /* Each client has this additional data */
 struct jc42_data {
 	struct i2c_client *client;
+	union acpi_object *str;
 	struct mutex	update_lock;	/* protect register access */
 	bool		extended;	/* true if extended range supported */
 	bool		valid;
@@ -353,6 +356,27 @@ static ssize_t show_alarm(struct device *dev,
 	return sprintf(buf, "%u\n", (val >> bit) & 1);
 }
 
+static ssize_t show_label(struct device *dev,
+			  struct device_attribute *attr, char *buf)
+{
+	struct jc42_data *data = dev_get_drvdata(dev);
+        int result;
+
+	if (!data->str)
+		return 0;
+                                         
+        result = utf16s_to_utf8s(
+                (wchar_t *)data->str->buffer.pointer,
+                data->str->buffer.length,
+                UTF16_LITTLE_ENDIAN, buf,
+                PAGE_SIZE);
+
+        buf[result++] = '\n';
+
+	return result;
+}
+
+static SENSOR_DEVICE_ATTR(temp1_label, S_IRUGO, show_label, NULL, 0);
 static SENSOR_DEVICE_ATTR(temp1_input, S_IRUGO, show_temp, NULL, t_input);
 static SENSOR_DEVICE_ATTR(temp1_crit, S_IRUGO, show_temp, set_temp, t_crit);
 static SENSOR_DEVICE_ATTR(temp1_min, S_IRUGO, show_temp, set_temp, t_min);
@@ -370,6 +394,7 @@ static SENSOR_DEVICE_ATTR(temp1_max_alarm, S_IRUGO, show_alarm, NULL,
 			  JC42_ALARM_MAX_BIT);
 
 static struct attribute *jc42_attributes[] = {
+	&sensor_dev_attr_temp1_label.dev_attr.attr,
 	&sensor_dev_attr_temp1_input.dev_attr.attr,
 	&sensor_dev_attr_temp1_crit.dev_attr.attr,
 	&sensor_dev_attr_temp1_min.dev_attr.attr,
@@ -452,6 +477,10 @@ static int jc42_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if (!data)
 		return -ENOMEM;
 
+	if (ACPI_COMPANION(dev) && ACPI_COMPANION(dev)->pnp.str_obj) {
+		data->str = ACPI_COMPANION(dev)->pnp.str_obj;
+	}
+
 	data->client = client;
 	i2c_set_clientdata(client, data);
 	mutex_init(&data->update_lock);
@@ -473,7 +502,7 @@ static int jc42_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	}
 	data->config = config;
 
-	hwmon_dev = devm_hwmon_device_register_with_groups(dev, client->name,
+	hwmon_dev = devm_hwmon_device_register_with_groups(dev, "jc42",
 							   data,
 							   jc42_groups);
 	return PTR_ERR_OR_ZERO(hwmon_dev);
