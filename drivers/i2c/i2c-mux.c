@@ -172,42 +172,7 @@ struct i2c_adapter *i2c_add_mux_adapter(struct i2c_adapter *parent,
 	}
 
 	if (ACPI_COMPANION(mux_dev)) {
-		struct acpi_buffer path;
-
-		dev_info(mux_dev, "ACPI binding mux channel %d\n", chan_id);
-
-		path.length = ACPI_ALLOCATE_BUFFER;
-		path.pointer = NULL;
-		acpi_get_name(ACPI_HANDLE(mux_dev), ACPI_FULL_PATHNAME, &path);
-		dev_warn(mux_dev, "mux_dev: %s\n", (char *)path.pointer);
-		kfree(path.pointer);
-
-		path.length = ACPI_ALLOCATE_BUFFER;
-		path.pointer = NULL;
-		acpi_get_name(ACPI_HANDLE(&priv->adap.dev), ACPI_FULL_PATHNAME, &path);
-		dev_warn(mux_dev, "adap->dev: %s\n", (char *)path.pointer);
-		kfree(path.pointer);
-
-		path.length = ACPI_ALLOCATE_BUFFER;
-		path.pointer = NULL;
-		acpi_get_name(ACPI_HANDLE(&parent->dev), ACPI_FULL_PATHNAME, &path);
-		dev_warn(mux_dev, "parent->dev: %s\n", (char *)path.pointer);
-		kfree(path.pointer);
-
 		acpi_preset_companion(&priv->adap.dev, ACPI_COMPANION(mux_dev), chan_id);
-
-		path.length = ACPI_ALLOCATE_BUFFER;
-		path.pointer = NULL;
-		acpi_get_name(ACPI_HANDLE(&priv->adap.dev), ACPI_FULL_PATHNAME, &path);
-		dev_warn(mux_dev, "adap->dev (after preset): %s\n", (char *)path.pointer);
-		kfree(path.pointer);
-
-		path.length = ACPI_ALLOCATE_BUFFER;
-		path.pointer = NULL;
-		acpi_get_name(ACPI_HANDLE(&parent->dev), ACPI_FULL_PATHNAME, &path);
-		dev_warn(mux_dev, "parent->dev (after preset): %s\n", (char *)path.pointer);
-		kfree(path.pointer);
-
 	}
 
 	if (force_nr) {

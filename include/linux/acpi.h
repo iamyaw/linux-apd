@@ -66,14 +66,7 @@ static inline bool has_acpi_companion(struct device *dev)
 static inline void acpi_preset_companion(struct device *dev,
 					 struct acpi_device *parent, u64 addr)
 {
-	struct acpi_device *child = acpi_find_child_device(parent, addr, NULL);
-	if (child) {
-		struct acpi_buffer path = { ACPI_ALLOCATE_BUFFER, NULL };
-		acpi_get_name(child->handle, ACPI_FULL_PATHNAME, &path);
-		pr_warn("preset companion found child %s at addr %llu\n", (char *)path.pointer, addr);
-		kfree(path.pointer);
-	}
-	ACPI_COMPANION_SET(dev, child);
+	ACPI_COMPANION_SET(dev, acpi_find_child_device(parent, addr, NULL));
 }
 
 static inline const char *acpi_dev_name(struct acpi_device *adev)

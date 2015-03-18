@@ -544,7 +544,9 @@ static int at24_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		/*
 		 * Try to get parameters from firmware.
 		 */
-		if (!at24_fw_to_chip(&client->dev, &chip)) {
+		if (at24_fw_to_chip(&client->dev, &chip)) {
+			dev_info(&client->dev, "using firmware properties\n");
+		} else {
 			/*
 			 * Fill in the remainder from the id_table data.
 			 */

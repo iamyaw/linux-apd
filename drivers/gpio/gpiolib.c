@@ -238,9 +238,16 @@ int gpiochip_add(struct gpio_chip *chip)
 	int		base = chip->base;
 	struct gpio_desc *descs;
 
+	pr_err("gpiochip_add()\n");
+
 	descs = kcalloc(chip->ngpio, sizeof(descs[0]), GFP_KERNEL);
 	if (!descs)
 		return -ENOMEM;
+
+	if ((!gpio_is_valid(base) || !gpio_is_valid(base + chip->ngpio - 1))
+			&& base >= 0) {
+		return -EINVAL;
+	}
 
 	spin_lock_irqsave(&gpio_lock, flags);
 
@@ -1863,14 +1870,14 @@ struct gpio_desc *__must_check __gpiod_get_index(struct device *dev,
 	int status;
 	enum gpio_lookup_flags lookupflags = 0;
 
-	dev_dbg(dev, "GPIO lookup for consumer %s\n", con_id);
+	dev_info(dev, "GPIO lookup for consumer %s\n", con_id);
 
 	/* Using device tree? */
 	if (IS_ENABLED(CONFIG_OF) && dev && dev->of_node) {
 		dev_dbg(dev, "using device tree for GPIO lookup\n");
 		desc = of_find_gpio(dev, con_id, idx, &lookupflags);
 	} else if (IS_ENABLED(CONFIG_ACPI) && dev && ACPI_HANDLE(dev)) {
-		dev_dbg(dev, "using ACPI for GPIO lookup\n");
+		dev_info(dev, "using ACPI for GPIO lookup\n");
 		desc = acpi_find_gpio(dev, con_id, idx, &lookupflags);
 	}
 

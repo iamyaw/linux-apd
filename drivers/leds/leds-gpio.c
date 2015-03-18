@@ -246,6 +246,8 @@ static int gpio_led_probe(struct platform_device *pdev)
 	struct gpio_leds_priv *priv;
 	int i, ret = 0;
 
+	dev_info(&pdev->dev, "gpio_led_probe()\n");
+
 	if (pdata && pdata->num_leds) {
 		priv = devm_kzalloc(&pdev->dev,
 				sizeof_gpio_leds_priv(pdata->num_leds),
@@ -272,6 +274,8 @@ static int gpio_led_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, priv);
+
+	dev_info(&pdev->dev, "added gpio leds\n");
 
 	return 0;
 }
